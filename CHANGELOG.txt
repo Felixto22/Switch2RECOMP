@@ -1,6 +1,8 @@
-Switch2Recomp 0.4.1-fx2 (Felixto22 fork)
+Switch2Recomp 0.4.1-fx3 (Felixto22 fork)
 
 RUNTIME (SDK 22 games: Fire Emblem Fortune's Weave boots past nninitStartup)
+- The display's fence without an NvRm fence is a syncpoint of its own at its current value (signaled), not syncpoint
+  0: SDK 22's NVN looks it up in the syncpoint shim, which refuses 0, and asserted at the first window acquire.
 - GET_CHARACTERISTICS answers SDK 22's 0xD8-byte request with the Switch 2 GPU too (it matched only SDK 21's 0xD0):
   SDK 22 got the Tegra X1 answer, NvRmGpuDeviceOpen failed (2) and NVN called through a NULL device.
 - Each thread's own handle is in its thread local region at +0x110. SDK 22's InternalCriticalSection (under

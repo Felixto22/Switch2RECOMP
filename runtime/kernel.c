@@ -657,7 +657,13 @@ static void hle_nvrm_trace(CPU* RESTRICT c, u64 entry){
   /* the display's native sync handle has no NvRm fence behind it here (id -1). mario kart world treats that as "no
      fence", other games abort in nn::wsi OnAcquireTexture. syncpoint 0 with value 0 is a fence that's already done */
   if(c->pc==lr && (u32)c->x[0]==0xFFFFFFFFu && strstr(g_nt[k].nm,"GetNvRmFenceFromNativeSyncHandle") && !getenv("SWR_NO_FENCE_FIX")){
-    static int nf; if(nf++<3) LOG("nvrm: native sync handle without a fence -> syncpoint 0 value 0 (already signaled)\n"); c->x[0]=0; }
+    /* a syncpoint of its own, not 0: SDK 22's NVN (Fire Emblem Fortune's Weave) looks the fence's syncpoint up in the
+       shim (NvRmGpuAddressSpaceGetSyncpointShimRoAddress), which refuses syncpoint 0 (4), and asserts. Its current
+       value is the fence value, so it reads as already signaled like before. SWR_FENCE_SYNCPT0=1: syncpoint 0 */
+    extern u32 syncpt_alloc(void); extern u32 syncpt_read(u32);
+    static u32 fid; if(!fid) fid= getenv("SWR_FENCE_SYNCPT0")? 0 : syncpt_alloc();
+    u32 fv= fid? syncpt_read(fid) : 0;
+    static int nf; if(nf++<3) LOG("nvrm: native sync handle without a fence -> syncpoint %u value %u (already signaled)\n",fid,fv); c->x[0]=(u64)fid|((u64)fv<<32); }
   if(alloc && c->pc==lr && !(u32)c->x[0] && guest_ok(a2,4)){ u32 id=gr32(a2);
     if(show) LOG("nvrm:   handle %u, memory %llx size %llx\n",id,(unsigned long long)ua,(unsigned long long)usz);
     if(ua && usz && g_nnmh<NMH_MAX){ g_nmh[g_nnmh].id=id; g_nmh[g_nnmh].a=ua; g_nmh[g_nnmh].sz=usz; g_nnmh++; } }
