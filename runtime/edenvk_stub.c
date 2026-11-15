@@ -18,3 +18,9 @@ void edenvk_submit_begin(void){}
 void edenvk_submit_end(void){}
 void edenvk_sync(void){}
 void edenvk_present(u64 a, u32 w, u32 h, u32 p, u32 l, u32 b, u32 f, const int crop[4]){ (void)a;(void)w;(void)h;(void)p;(void)l;(void)b;(void)f;(void)crop; }
+/* the Lichii renderer's entry points (runtime/lichiivk/glue/lichii_glue.cpp): not in this build */
+int g_lichii_on;
+const int g_lichii_lib=0;
+void lichii_submit(u32 id, const u64* e, u32 n, u32 incs){ (void)id;(void)e;(void)n;(void)incs; }
+void lichii_set_shim(u64 gva){ (void)gva; }
+void lichii_syncpt_external(u32 id){ (void)id; }

@@ -35,3 +35,6 @@ __pycache__/
 # the shader translator is shipped in the repository
 !tools/nxshader/xlate_bin/*.dll
 !tools/nxshader/xlate_bin/dmsh_xlate
+runtime/lichiivk/build*/
+runtime/lichiivk/win/
+runtime/lichiivk/lin/

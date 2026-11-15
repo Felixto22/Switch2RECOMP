@@ -306,6 +306,11 @@ static int chan_pump(GpuChannel* ch){
             if(now-s->wt0<2000000000ull) return 1;
             { static int nl; if(nl<sw2_cap(6)){ nl++; LOG("gpu: submit fence %u >= %u never came (2 s), running it anyway\n",s->wait_id,s->wait_val); } } } } }
       s->started=1; }
+    { extern int g_lichii_on; extern void lichii_submit(u32,const u64*,u32,u32);
+      if(g_lichii_on){ /* renderer=eden with Lichii's GPU: the whole submission goes to it, its syncpoint increments at the end
+                          reach ours from its GPU thread (no g_sub_done here) */
+        lichii_submit(s->syncpt,s->ent,s->n,s->incs);
+        ch->psq=s->next; if(!ch->psq) ch->psq_tail=NULL; free(s->ent); free(s); continue; } }
     { extern int g_edenvk_on; extern void edenvk_submit_begin(void); if(g_edenvk_on && !s->k && !s->i) edenvk_submit_begin(); }   /* renderer=vulkan: CPU writes since the last submit */
     for(; s->k<s->n; s->k++, s->i=0){
       u64 ent=s->ent[s->k]; u64 va=ent&0xFFFFFFFFFCull; u32 words=(u32)((ent>>42)&0x1FFFFF);

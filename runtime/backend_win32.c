@@ -54,7 +54,7 @@ void backend_ini(const char* k, const char* v){
       if(nv) v="eden";   /* built without the NVN layer: Eden's renderer */
 #endif
     }
-    extern int g_edenvk_want; static int set_ww; g_edenvk_want= !strcmp(v,"eden");
+    extern int g_edenvk_want; static int set_ww; g_edenvk_want= !strcmp(v,"eden") || !strcmp(v,"lichii");   /* lichii: the same renderer slot (a build with runtime/lichiivk) */
     /* Vulkan needs to know which guest pages the CPU wrote: guest memory gets reserved with write tracking (read before
        mem_init); a later renderer line that isn't vulkan takes it back */
     if(g_edenvk_want){ if(!getenv("SWR_WW")){ _putenv("SWR_WW=1"); set_ww=1; } }

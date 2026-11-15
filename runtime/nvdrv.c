@@ -65,8 +65,12 @@ static u32 syncpt[256]; static u32 syncpt_max[256]; static PCond g_sync_cv; stat
 
 u32 syncpt_read(u32 id){ return __atomic_load_n(&syncpt[id&255],__ATOMIC_SEQ_CST); }
 
-void syncpt_incr(u32 id){ pm_lock(&g_sync_lk); syncpt[id&255]++; pc_broadcast(&g_sync_cv); pm_unlock(&g_sync_lk);
+/* the GPU (renderer=eden with Lichii's GPU) reached a syncpoint increment of its own */
+void syncpt_incr_from_gpu(u32 id){ pm_lock(&g_sync_lk); syncpt[id&255]++; pc_broadcast(&g_sync_cv); pm_unlock(&g_sync_lk);
   extern void nv_events_check(void); nv_events_check(); }
+
+void syncpt_incr(u32 id){ syncpt_incr_from_gpu(id);
+  extern int g_lichii_on; extern void lichii_syncpt_external(u32); if(g_lichii_on) lichii_syncpt_external(id); }   /* Lichii's copy follows */
 
 int syncpt_wait(u32 id, u32 thresh, i64 timeout){
   pm_lock(&g_sync_lk); u64 end=plat_ns()+(u64)(timeout<0?0:timeout);
@@ -163,6 +167,12 @@ static u32 ioctl_as(u32 cmd, u8* d, u32 n, u8* extra, u32 nextra){
                     syncpoint's value (gmem_r32). SDK 22's NVN (Fire Emblem Fortune's Weave) looks the display fence up there
                     and asserts when there is no map. Elsewhere, and with SWR_NO_SYNC_SHIM=1: no map, as before */
       memset(d,0,n<16? n : 16);
+      { extern const int g_lichii_lib; extern int g_edenvk_want; extern void lichii_set_shim(u64);
+        if(g_lichii_lib && g_edenvk_want && (g_title_id>>56)==0x04 && !getenv("SWR_NO_SYNC_SHIM")){
+          /* Lichii's GPU reads the shim itself: its layout, a u32 a syncpoint on the last page of the 40 bit space */
+          u64 b=0xFFFFFFF000ull; u32 sz=4, num=SYNC_SHIM_N; memcpy(d,&b,8); memcpy(d+8,&sz,4); memcpy(d+12,&num,4); lichii_set_shim(b);
+          { static int said; if(!said){ said=1; LOG("nvdrv: syncpoint shim at gpu %llx for Lichii's GPU (%u syncpoints, u32 each)\n",(unsigned long long)b,num); } }
+          return 0; } }
       if((g_title_id>>56)==0x04 && !getenv("SWR_NO_SYNC_SHIM")){ u64 b=SYNC_SHIM_BASE; u32 sz=SYNC_SHIM_STRIDE, num=SYNC_SHIM_N;
         memcpy(d,&b,8); memcpy(d+8,&sz,4); memcpy(d+12,&num,4); g_sync_shim_on=1;
         { static int said; if(!said){ said=1; LOG("nvdrv: syncpoint shim at gpu %llx (%u syncpoints, %x bytes each)\n",(unsigned long long)b,num,sz); } } }

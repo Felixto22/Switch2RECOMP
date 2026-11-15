@@ -290,6 +290,10 @@ def build_runtime(cc, out, target_win, backend, say, opt='2'):
     # renderer=vulkan: Eden's video_core (GPL-3.0) when runtime/edenvk/<os>/libedenvk.a is built (runtime/edenvk/build_lib.py)
     evk = os.path.join(RT, 'edenvk', 'win' if target_win else 'lin')
     evk_libs = [os.path.join(evk, 'libedenvk.a'), os.path.join(evk, 'libsirit.a')]
+    # renderer=eden with Lichii's Switch 2 GPU (runtime/lichiivk) when it is built; SWR_EDEN_CLASSIC=1: Eden's
+    lvk = os.path.join(RT, 'lichiivk', 'win' if target_win else 'lin')
+    lvk_libs = [os.path.join(lvk, 'liblichiivk.a'), os.path.join(lvk, 'libsirit.a')]
+    if all(os.path.isfile(x) for x in lvk_libs) and not os.environ.get('SWR_EDEN_CLASSIC'): evk_libs = lvk_libs
     edenvk = gl and backend in ('win32', 'x11') and all(os.path.isfile(x) for x in evk_libs) and not os.environ.get('SWR_NO_EDENVK')
     if not edenvk: srcs += [os.path.join(RT, 'edenvk_stub.c')]
     if target_win and backend == 'win32': srcs += [os.path.join(RT, 'rec_win32.c')]   # F7 recorder, Media Foundation
