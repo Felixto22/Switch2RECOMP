@@ -1,2 +1,2 @@
-#include "../deps/fmt/src/format.cc"
-#include "../deps/fmt/src/os.cc"
+#include "../edenvk/deps/fmt/src/format.cc"
+#include "../edenvk/deps/fmt/src/os.cc"

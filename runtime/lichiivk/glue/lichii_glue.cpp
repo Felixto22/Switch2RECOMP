@@ -21,6 +21,8 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <thread>
+#include <chrono>
 #include <vector>
 
 #include "common/settings.h"
@@ -46,6 +48,7 @@ void logf_(int lvl, const char* fmt, ...);
 u64 plat_ns(void);
 extern float g_opt_resf;     /* resolution= in the .ini */
 extern int g_opt_docked;     /* docked= in the .ini */
+u32 syncpt_read(u32 id);
 void syncpt_incr_from_gpu(u32 id);   /* nvdrv.c: the runtime's syncpoint, without echoing back here */
 }
 extern thread_local bool g_lichii_echo_off;   /* host1x/syncpoint_manager.cpp */
@@ -101,7 +104,14 @@ struct Glue {
     std::mutex lk;
 };
 Glue* g;
-u64 g_shim;   // Switch 2 read-only syncpoint shim (GET_SYNC_RO_MAP before the renderer is up)
+u64 g_shim;
+std::atomic<u64> st_submits, st_lists, st_composites, st_maps;
+std::atomic<u64> busy_since;          // plat_ns() while a call into Lichii runs on the runtime's GPU thread, else 0
+std::atomic<const char*> busy_what;
+struct Busy {
+    explicit Busy(const char* w) { busy_what = w; busy_since = plat_ns(); }
+    ~Busy() { busy_since = 0; }
+};   // Switch 2 read-only syncpoint shim (GET_SYNC_RO_MAP before the renderer is up)
 
 Tegra::CommandHeader FenceAction(Tegra::Engines::Puller::FenceOperation op, u32 id) {
     Tegra::Engines::Puller::FenceAction a{};
@@ -189,7 +199,46 @@ int edenvk_start(int type, void* display, void* surface, u32 w, u32 h) {
         g->gmmu = std::make_unique<Tegra::MemoryManager>(*g->sys, 40, 1ULL << 34, 16, 12);
         g->gpu->InitAddressSpace(*g->gmmu);
         if (g_shim) g->gmmu->SetNativeSyncpointShim(g_shim);
+        // the first 64 presents log whether Lichii found the game's image in its texture cache (black screen: "accelerated=false")
+        if (!getenv("EDEN_NATIVE_FRAME_CAPTURE") && !getenv("SWR_LICHII_QUIET")) {
+#ifdef _WIN32
+            _putenv("EDEN_NATIVE_FRAME_CAPTURE=1");
+#else
+            setenv("EDEN_NATIVE_FRAME_CAPTURE", "1", 1);
+#endif
+        }
         g->gpu->Start();
+        if (!getenv("SWR_LICHII_QUIET")) {
+            // every 5 s while the game runs: what Lichii's GPU got and where it is (a black screen or a stall shows up here)
+            std::thread([] {
+                u64 last_frames = ~0ull, last_sub = ~0ull; int same = 0;
+                for (;;) {
+                    std::this_thread::sleep_for(std::chrono::seconds(5));
+                    if (!g) continue;
+                    const u64 frames = static_cast<u64>(g->gpu->Renderer().GetCurrentFrame());
+                    const u64 sub = st_submits.load();
+                    const u64 bs = busy_since.load();
+                    char chs[600] = ""; size_t o = 0;
+                    {
+                        std::scoped_lock l{g->lk};
+                        auto& sm = g->gpu->Host1x().GetSyncpointManager();
+                        for (auto& [id, cs] : g->chans) {
+                            const bool acq = cs->payload && cs->payload->dma_pusher.HasPendingAcquire();
+                            o += snprintf(chs + o, sizeof chs - o, " ch%u: sync %u/%u%s", id, sm.GetGuestSyncpointValue(id), syncpt_read(id), acq ? " WAITING(acquire)" : "");
+                            if (o >= sizeof chs - 60) break;
+                        }
+                    }
+                    const bool changed = frames != last_frames || sub != last_sub;
+                    same = changed ? 0 : same + 1;
+                    if (changed || same <= 2)
+                        logf_(1, "lichii: status: %llu submits (%llu lists), %llu presents, %llu frames shown, suspended channels %s%s%s%s\n",
+                              (unsigned long long)sub, (unsigned long long)st_lists.load(), (unsigned long long)st_composites.load(), (unsigned long long)frames,
+                              g->gpu->HasSuspendedChannels() ? "yes" : "no", chs,
+                              bs ? " | BLOCKED in " : "", bs ? busy_what.load() : "");
+                    last_frames = frames; last_sub = sub;
+                }
+            }).detach();
+        }
         g_edenvk_on = 1;
         g_lichii_on = 1;
         logf_(1, "lichii: Lichii's Switch 2 GPU started (%ux%u, %s%s)\n", w, h, async ? "own GPU thread" : "synchronous",
@@ -206,16 +255,18 @@ int edenvk_start(int type, void* display, void* surface, u32 w, u32 h) {
 
 void edenvk_resize(u32 w, u32 h) { if (g) g->window->Resize(w, h); }
 
+/* GMMU changes run on Lichii's GPU thread in submission order (MapInOrder / RunInOrder, as its nvhost_as_gpu does):
+   mapping from the game's thread while the GPU thread translates addresses raced with it */
 void edenvk_map(u64 gva, u64 cpu, u64 size) {
     if (!g) return;
-    std::scoped_lock l{g->lk};
-    g->gmmu->Map(gva, cpu, size, Tegra::PTEKind::PITCH, false);
+    auto* mm = g->gmmu.get();
+    g->gpu->MapInOrder(gva, size, [mm, gva, cpu, size] { mm->Map(gva, cpu, size, Tegra::PTEKind::PITCH, false); });
 }
 
 void edenvk_unmap(u64 gva, u64 size) {
     if (!g) return;
-    std::scoped_lock l{g->lk};
-    g->gmmu->Unmap(gva, size);
+    auto* mm = g->gmmu.get();
+    g->gpu->RunInOrder([mm, gva, size] { mm->Unmap(gva, size); });
 }
 
 /* GET_SYNC_RO_MAP (nvdrv.c): Lichii's shim layout, a u32 a syncpoint */
@@ -229,6 +280,8 @@ void lichii_submit(u32 id, const u64* ent, u32 n, u32 incs) {
     if (!g) return;
     std::scoped_lock l{g->lk};
     try {
+        Busy b_("submit");
+        st_submits++;
         auto& cs = chan(id);
         Tegra::CommandList list(n);
         size_t words = 0;
@@ -253,6 +306,7 @@ void lichii_submit(u32 id, const u64* ent, u32 n, u32 incs) {
             }
         }
         g->gpu->PushGPUEntries(cs.bind_id, std::move(list));
+        st_lists += n;
         if (incs) g->gpu->PushGPUEntries(cs.bind_id, Tegra::CommandList{IncrementList(id, incs)});
     } catch (const std::exception& e) {
         static int n_; if (n_++ < 20) logf_(0, "lichii: submit on channel %u failed: %s\n", id, e.what());
@@ -279,6 +333,8 @@ void edenvk_present(u64 addr, u32 w, u32 h, u32 pitch, u32 layout, u32 bhl, u32 
         { static int n; if (n < 6) { n++; logf_(1, "lichii: present %llx %ux%u pitch %u format %u\n", (unsigned long long)addr, w, h, pitch, fmt); } }
         std::vector<Tegra::FramebufferConfig> layers{f};
         std::vector<Service::Nvidia::NvFence> fences;
+        Busy b_("present");
+        st_composites++;
         g->gpu->RequestComposite(std::move(layers), std::move(fences));
     } catch (const std::exception& e) {
         static int n_; if (n_++ < 20) logf_(0, "lichii: present failed: %s\n", e.what());
