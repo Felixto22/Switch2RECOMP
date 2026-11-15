@@ -1,3 +1,14 @@
+Switch2Recomp 0.4.1-fx1 (Felixto22 fork)
+
+RUNTIME (SDK 22 games: Fire Emblem Fortune's Weave boots past nninitStartup)
+- Each thread's own handle is in its thread local region at +0x110. SDK 22's InternalCriticalSection (under
+  nn::os::SdkMutex and the pthread mutexes) takes the owner tag from there; left 0, every free lock looked held by the
+  caller and the first heap allocation aborted in pthread_mutex_lock (svcBreak 1.1 s in). Same fix as Hookshot's.
+- Switch 2 games count the system tick at 31.25 MHz (the Switch 2's counter; SDK 22's GetSystemTickFrequency is
+  that constant). At 19.2 MHz every time span through GetSystemTick came out 1.63x too long. SWR_TICK_192=1: as before.
+- tools/build_win_libs.sh: cross-builds on Linux the libraries the Windows runtime links (Opus, OpenH264, libvpx,
+  SPIRV-Cross, the NVN layer, edenvk) and the runtime.
+
 Switch2Recomp 0.4.1 + .nup (Felixto22 fork)
 
 - Recompile straight from a .nup file (a decrypted Switch 2 dump in one file): pick it in "Recompile a game" (the

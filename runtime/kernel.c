@@ -102,6 +102,13 @@ static void th_destroy(KObj* o){ (void)o; /* thread objects are never freed */ }
 
 static u64 alloc_tls(void){ u64 a=kmem_alloc(0x1000,MS_TLS,PERM_RW); memset(GP(a),0,0x1000); return a; }
 
+/* the thread's own handle in its thread local region at +0x110. SDK 22's InternalCriticalSection (the lock under
+   nn::os::SdkMutex and pthread mutexes) takes the owner tag from there: Enter/TryEnter write it into the lock word and
+   IsLockedByCurrentThread compares the word with it (older SDKs went through ThreadType at +0x1F8). Left 0, every
+   free lock (word 0) looked held by the caller: Fire Emblem Fortune's Weave aborted in pthread_mutex_lock under
+   nninitStartup's first aligned_alloc. Same fix as Hookshot's host/hos_thread.c. */
+static void tls_set_handle(KThread* t, u32 h){ gw32(t->tls+0x110,h); }
+
 KThread* kthread_create(u64 entry, u64 arg, u64 stack_top, int prio, int core){
   KThread* t=calloc(1,sizeof *t);
   t->o.type=KO_THREAD; t->o.is_signaled=th_sig; t->o.destroy=th_destroy; t->o.name="thread";
@@ -157,7 +164,7 @@ void kernel_run_main(u64 entry, u64 stack_size, int prio, int core){
   mem_map(st,stack_size,MS_STACK,PERM_RW);
   KThread* t=kthread_create(entry,0,st+stack_size,prio,core);
   t->is_main=1; g_main=t; strcpy(t->name,"main");
-  u32 h=h_new(&t->o); t->cpu.x[1]=h;
+  u32 h=h_new(&t->o); t->cpu.x[1]=h; tls_set_handle(t,h);
   kthread_start(t);
 }
 
@@ -506,7 +513,7 @@ static u32 svc_get_info_(u32 id0, u32 h, u64 id1, u64* out){
     case 23: *out=1; return 0;
     case 24: { int live=0; for(int i=0;i<g_nthreads;i++) if(g_threads[i] && g_threads[i]->state!=2) live++; *out=(u64)(live<96? 96-live : 0); return 0; }  /* FreeThreadCount: unity skips its job threads if this
                                                                                                                                                               is 0 */
-    case 0xF0000002: { KThread* t=kthread_cur(); (void)t; *out=plat_ns()*192/10000; return 0; }
+    case 0xF0000002: { KThread* t=kthread_cur(); (void)t; extern double g_tick_per_ns; *out=(u64)((double)plat_ns()*g_tick_per_ns); return 0; }
     case 26: *out=1; return 0;
     case 27: case 28: *out=0; return 0;
     /* Switch 2: 29/30 are read but 0 is fine. 33 is the memory page granularity (ro checks relro alignment with
@@ -815,7 +822,7 @@ static void swr_svc_(CPU* c, u32 imm){
     int prio=(int)(u32)x[4], core=(int)(i32)(u32)x[5];
     if(core==-2) core=default_core();
     KThread* n=kthread_create(x[1],x[2],x[3],prio,core);
-    u32 h=h_new(&n->o); x[0]=0; x[1]=h;
+    u32 h=h_new(&n->o); x[0]=0; x[1]=h; tls_set_handle(n,h);
     if((g_title_id>>56)==0x04){ static int nl; if(nl<sw2_cap(8)){ nl++; LOG("thread %llu created: entry %llx prio %d core %d (lr %llx)\n",(unsigned long long)n->id,(unsigned long long)n->cpu.pc,prio,core,(unsigned long long)c->x[30]); } }
     else LOGV("CreateThread entry=%llx stack=%llx prio=%d core=%d -> %x\n",(unsigned long long)x[1],(unsigned long long)n->stack_top,prio,core,h);
     return; }

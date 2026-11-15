@@ -7,7 +7,7 @@
 /* the runtime version goes in every log, so you can tell a crash report from an old or third party build by the
    first line */
 #ifndef SWR_RUNTIME_VERSION
-#define SWR_RUNTIME_VERSION "0.4.1"
+#define SWR_RUNTIME_VERSION "0.4.1-fx1"
 #endif
 const char* g_runtime_version=SWR_RUNTIME_VERSION;
 #include "rt.h"
@@ -101,7 +101,11 @@ static void vsync_tick_vt(void){
   u64 v=guest_ns(); if(!next) next=v;
   if(v>=next){ vi_vsync_tick(); next+=16666667ull; if(v>next+50000000ull) next=v; } }
 
-static u64 rt_ticks(void){ return (u64)((double)guest_ns()*0.0192); }
+/* CNTPCT ticks per ns: the Switch's counter runs at 19.2 MHz, the Switch 2's at 31.25 MHz. Switch 2 SDKs take the rate
+   as a constant (SDK 22's nn::os::GetSystemTickFrequency returns 31250000), so counted at 19.2 MHz all their timing
+   through GetSystemTick ran 1.63x slow. SWR_TICK_192=1 keeps 19.2 MHz for a Switch 2 game. */
+double g_tick_per_ns=0.0192;
+static u64 rt_ticks(void){ return (u64)((double)guest_ns()*g_tick_per_ns); }
 
 void swr_fpcr_apply(CPU* c){
 #if defined(__aarch64__)
@@ -438,6 +442,7 @@ int swr_main(int argc, char** argv){
     char q[1200]; snprintf(q,sizeof q,"%sexefs/main.npdm",g_datadir); FILE* f=fopen(q,"rb");
     if(f){ u8 h[0x10]; if(fread(h,1,0x10,f)==0x10 && !memcmp(h,"META",4) && ((h[0x0C]>>1)&7)==1){ mem_layout_36bit(); LOG("npdm: 36-bit address space (stack and TLS kept below 64 GB)\n"); } fclose(f); } }
   if((g_title_id>>56)==0x04 && !getenv("SWR_HEAP8")){ mem_layout_nx2(); LOG("memory: Switch 2 layout, 12 GB heap region\n"); }
+  if((g_title_id>>56)==0x04 && !getenv("SWR_TICK_192")){ g_tick_per_ns=0.03125; LOG("clock: Switch 2 system tick, 31.25 MHz\n"); }
   mem_init(); if(g_opt_null_trap){ plat_vm_readonly(g_mem,0x10000); LOG("null_trap: writes to page 0 crash with a log\n"); }
   kernel_init(); build_dispatch();
   if(g_mod->init) g_mod->init(&g_rtapi);
