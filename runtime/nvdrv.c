@@ -60,6 +60,7 @@ static u64 g_va_next=0x0400000000ull;       /* dumb bump allocator for gva */
 static u64 va_alloc(u64 size, u64 align){ if(align<0x10000) align=0x10000; u64 a=(g_va_next+align-1)&~(align-1); g_va_next=a+((size+0xFFFF)&~0xFFFFull); return a; }
 
 /* ============================================================ syncpoints */
+int g_sync_shim_on;   /* GET_SYNC_RO_MAP handed out the shim (see ioctl_as 0x0B); gpu.c reads syncpoints through it */
 static u32 syncpt[256]; static u32 syncpt_max[256]; static PCond g_sync_cv; static PMutex g_sync_lk;
 
 u32 syncpt_read(u32 id){ return __atomic_load_n(&syncpt[id&255],__ATOMIC_SEQ_CST); }
@@ -157,7 +158,15 @@ static u32 ioctl_as(u32 cmd, u8* d, u32 n, u8* extra, u32 nextra){
       memcpy(rg,&o0,8); memcpy(rg+8,&ps0,4); memset(rg+12,0,4); memcpy(rg+16,&np0,8);
       memcpy(rg+24,&o1,8); memcpy(rg+32,&ps1,4); memset(rg+36,0,4); memcpy(rg+40,&np1,8); (void)r;
       if(extra && nextra) memcpy(extra,rg,nextra<48? nextra : 48); return 0; }
-    case 0x0B: memset(d,0,n<16? n : 16); return 0;   /* GET_SYNC_RO_MAP: no read-only syncpoint map */
+    case 0x0B: { /* GET_SYNC_RO_MAP {u64 base_gpuva; u32 sync_size; u32 num_syncpoints}. Switch 2: a read-only syncpoint
+                    shim at the top of the GPU address space, one 4 KB slot a syncpoint, whose first word reads as that
+                    syncpoint's value (gmem_r32). SDK 22's NVN (Fire Emblem Fortune's Weave) looks the display fence up there
+                    and asserts when there is no map. Elsewhere, and with SWR_NO_SYNC_SHIM=1: no map, as before */
+      memset(d,0,n<16? n : 16);
+      if((g_title_id>>56)==0x04 && !getenv("SWR_NO_SYNC_SHIM")){ u64 b=SYNC_SHIM_BASE; u32 sz=SYNC_SHIM_STRIDE, num=SYNC_SHIM_N;
+        memcpy(d,&b,8); memcpy(d+8,&sz,4); memcpy(d+12,&num,4); g_sync_shim_on=1;
+        { static int said; if(!said){ said=1; LOG("nvdrv: syncpoint shim at gpu %llx (%u syncpoints, %x bytes each)\n",(unsigned long long)b,num,sz); } } }
+      return 0; }
     case 0x09: { /* ALLOC_AS_EX: {u32 flags, i32 as_fd, u32 big_page_size, u32 pad, u64 va_start, va_end, va_split}
                     big_page_size 0 means 128K (yuzu DEFAULT_BIG_PAGE_SIZE). REMAP uses big page units */
       u32 bps; memcpy(&bps,d+8,4); if(!bps) bps=0x20000;

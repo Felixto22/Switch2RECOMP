@@ -207,6 +207,11 @@ void   kernel_run_main(u64 entry, u64 stack_size, int prio, int core);
 void   swr_svc(CPU* c, u32 imm);
 extern PMutex g_klock;
 extern u64 g_title_id;
+/* the read-only syncpoint shim (nvdrv.c, GET_SYNC_RO_MAP): slot i's first word is syncpoint i */
+#define SYNC_SHIM_BASE 0xFFFF000000ull
+#define SYNC_SHIM_STRIDE 0x1000u
+#define SYNC_SHIM_N 192u
+extern int g_sync_shim_on;
 /* Switch 2 titles (04...) are still being brought up: their one-off log lines get a much higher cap, so one run shows
    every stage instead of the first few calls of each */
 static inline int sw2_cap(int n){ return (g_title_id>>56)==0x04? n*25 : n; }

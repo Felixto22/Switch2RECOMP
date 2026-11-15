@@ -40,7 +40,10 @@ u8* gmem_ptr(u64 gva, u64 size){
   for(u64 o=(0x1000-(gva&0xFFF));o<size;o+=0x1000){ if(gmmu_translate(gva+o)!=c0+o) return NULL; }
   return GP(c0); }
 
-u32 gmem_r32(u64 gva){ u32 v=0; gmem_read(gva,&v,4); return v; }
+u32 gmem_r32(u64 gva){
+  if(UNLIKELY(gva-SYNC_SHIM_BASE<(u64)SYNC_SHIM_N*SYNC_SHIM_STRIDE) && g_sync_shim_on){ extern u32 syncpt_read(u32);
+    u64 o=gva-SYNC_SHIM_BASE; return (o&(SYNC_SHIM_STRIDE-1))? 0 : syncpt_read((u32)(o/SYNC_SHIM_STRIDE)); }
+  u32 v=0; gmem_read(gva,&v,4); return v; }
 
 void gmem_w32(u64 gva, u32 v){ gmem_write(gva,&v,4); }
 

@@ -1,6 +1,9 @@
-Switch2Recomp 0.4.1-fx3 (Felixto22 fork)
+Switch2Recomp 0.4.1-fx4 (Felixto22 fork)
 
 RUNTIME (SDK 22 games: Fire Emblem Fortune's Weave boots past nninitStartup)
+- Switch 2: GET_SYNC_RO_MAP hands out a read-only syncpoint shim (top of the GPU address space, 4 KB a syncpoint);
+  a GPU read of a slot's first word is that syncpoint's value. SDK 22's NVN looks the display fence up there and
+  asserted at the first window acquire with no map. SWR_NO_SYNC_SHIM=1: no map, as before.
 - The display's fence without an NvRm fence is a syncpoint of its own at its current value (signaled), not syncpoint
   0: SDK 22's NVN looks it up in the syncpoint shim, which refuses 0, and asserted at the first window acquire.
 - GET_CHARACTERISTICS answers SDK 22's 0xD8-byte request with the Switch 2 GPU too (it matched only SDK 21's 0xD0):
