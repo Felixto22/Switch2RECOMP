@@ -7,7 +7,7 @@
 /* the runtime version goes in every log, so you can tell a crash report from an old or third party build by the
    first line */
 #ifndef SWR_RUNTIME_VERSION
-#define SWR_RUNTIME_VERSION "0.4.1-fx4"
+#define SWR_RUNTIME_VERSION "0.4.1-fx5"
 #endif
 const char* g_runtime_version=SWR_RUNTIME_VERSION;
 #include "rt.h"
@@ -140,6 +140,9 @@ void crash_report(void* host_pc, void* fault, int sig){
     { extern char __ImageBase; u64 b=(u64)(size_t)&__ImageBase, p=(u64)(size_t)host_pc; if(p>=b && p<b+0x10000000ull) logf_(0,"  in the runtime itself (exe offset +%llx), thread %s\n",(unsigned long long)(p-b), kthread_cur()? "of the game" : "of the runtime (GPU, audio or window)"); }
 #endif
     if(ga && ga<0x1000000ull) logf_(0,"  the address is a null pointer plus an offset: the game probably got NULL from its allocator (out of memory?). If the game needs more memory than the console's 3.2 GB (Tears of the Kingdom), try memory_gb=6 in the .ini; older games can break with it, so leave it at 0 for those\n"); }
+  { /* which DLL the crash is in (a thread of the video driver's own has no runtime or game frames to show) */
+    extern int plat_module_of(void* pc, char* name, int n, u64* off, unsigned long* tid); char mn[260]; u64 mo=0; unsigned long tid=0;
+    if(plat_module_of(host_pc,mn,sizeof mn,&mo,&tid)) logf_(0,"  in %s (+%llx), host thread %lu%s\n",mn,(unsigned long long)mo,tid, t? "" : " (not a game thread)"); }
   if(g_mod){ /* closest recompiled fn below host pc */
     u64 best=0, ga2=0; for(u32 i=0;i<g_mod->nentries;i++){ u64 f=(u64)(size_t)g_mod->entry_fn[i]; if(f<=(u64)(size_t)host_pc && f>best){ best=f; ga2=g_mod->entry_addr[i]; } }
     if(best && (u64)(size_t)host_pc-best<0x100000) logf_(0,"  inside the recompiled code of game function %llx (+%llx on the host)\n",(unsigned long long)ga2,(unsigned long long)((u64)(size_t)host_pc-best)); }

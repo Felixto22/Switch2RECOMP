@@ -205,6 +205,12 @@ static void log_runtime_callers(CONTEXT* c, int max){
   int n=0; for(; sp<top && n<max; sp++) if(*sp>b+0x1000 && *sp<end){ if(!n) logf_(0,"  called from the runtime at"); logf_(0," +%llx",(unsigned long long)(*sp-b)); n++; }
   if(n) logf_(0," (exe offsets)\n"); }
 
+/* the module (exe or DLL file name) holding pc, the offset in it and this thread's id */
+int plat_module_of(void* pc, char* name, int n, u64* off, unsigned long* tid){
+  HMODULE hm=NULL; char mp[MAX_PATH]; *tid=GetCurrentThreadId();
+  if(!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,(LPCSTR)pc,&hm) || !hm || !GetModuleFileNameA(hm,mp,sizeof mp)) return 0;
+  const char* bn=strrchr(mp,'\\'); snprintf(name,n,"%s",bn? bn+1 : mp); *off=(u64)(size_t)pc-(u64)(size_t)hm; return 1; }
+
 static DWORD g_guard_tls=TLS_OUT_OF_INDEXES;
 
 void plat_guard_enter(void* rec){ if(g_guard_tls==TLS_OUT_OF_INDEXES) return; TlsSetValue(g_guard_tls,rec); }
@@ -438,6 +444,7 @@ int plat_text_input(const u16* def, u16* out, int max){
   if(game) SetForegroundWindow(game);
   return n; }
 #else
+int plat_module_of(void* pc, char* name, int n, u64* off, unsigned long* tid){ (void)pc; (void)name; (void)n; (void)off; (void)tid; return 0; }
 /* ------------------------------------------------------------------ POSIX */
 #include <sys/mman.h>
 #include <sys/stat.h>
