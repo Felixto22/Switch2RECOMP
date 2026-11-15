@@ -1,6 +1,8 @@
-Switch2Recomp 0.4.1-fx1 (Felixto22 fork)
+Switch2Recomp 0.4.1-fx2 (Felixto22 fork)
 
 RUNTIME (SDK 22 games: Fire Emblem Fortune's Weave boots past nninitStartup)
+- GET_CHARACTERISTICS answers SDK 22's 0xD8-byte request with the Switch 2 GPU too (it matched only SDK 21's 0xD0):
+  SDK 22 got the Tegra X1 answer, NvRmGpuDeviceOpen failed (2) and NVN called through a NULL device.
 - Each thread's own handle is in its thread local region at +0x110. SDK 22's InternalCriticalSection (under
   nn::os::SdkMutex and the pthread mutexes) takes the owner tag from there; left 0, every free lock looked held by the
   caller and the first heap allocation aborted in pthread_mutex_lock (svcBreak 1.1 s in). Same fix as Hookshot's.

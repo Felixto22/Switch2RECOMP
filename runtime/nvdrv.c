@@ -211,9 +211,12 @@ static u32 ioctl_ctrlgpu(u32 cmd, u8* d, u32 n, u8* extra, u32 nextra){
       w[28]=1; w[29]=0; w[30]=2; w[31]=1; w[32]=0; w[33]=1; w[34]=0x21D70; w[35]=0; u64 cn=0x6230326D67ull; memcpy(ch+0x90,&cn,8);
       u64 sz=0xA0, ad=0xdeadbeef; memcpy(d,&sz,8); memcpy(d+8,&ad,8); memcpy(d+16,ch,0xA0);
       if(extra && nextra) memcpy(extra,ch,nextra<0xA0? nextra : 0xA0);        /* Ioctl3 passes data in the extra buffer */
-      if(((cmd>>16)&0x3FFF)==0xE0){ /* Switch 2's SDK asks for 0xD0 bytes: Ampere ids, its SM version, 4K pages and the
-                                       ioctl interface levels after the 0x70 shared with the 0xA0 layout */
-        u8 nt[0xD0]; memset(nt,0,sizeof nt); memcpy(nt,ch,0x70); u32 v;
+      if(((cmd>>16)&0x3FFF)>=0xE0){ /* Switch 2's SDK asks for 0xD0 bytes (SDK 21, Mario Kart World) or 0xD8 (SDK 22, Fire Emblem
+                                       Fortune's Weave): Ampere ids, its SM version, 4K pages and the ioctl interface levels after
+                                       the 0x70 shared with the 0xA0 layout. SDK 22 got the GM20B answer before: NvRmGpuDeviceOpen
+                                       failed (2), wrote no device, and NVN called through a NULL one. Past 0xD0: zeros */
+        u32 chsz=((cmd>>16)&0x3FFF)-16; if(chsz>0x100) chsz=0x100;
+        u8 nt[0x100]; memset(nt,0,sizeof nt); memcpy(nt,ch,0x70); u32 v;
         v=0x170; memcpy(nt,&v,4); v=0xE; memcpy(nt+4,&v,4); v=0x808; memcpy(nt+0x3C,&v,4); memcpy(nt+0x40,&v,4);   /* SM 8.8: NVN only carries its internal shaders for 0x808 */
         v=0x1000; memcpy(nt+0x28,&v,4); memcpy(&v,ch+0x34,4); v=(v&0x10000)|0x1000; memcpy(nt+0x34,&v,4);
         u64 f; memcpy(&f,ch+0x50,8); f|=(1ull<<8)|(1ull<<22)|(1ull<<26)|(1ull<<34)|(0xFull<<40); memcpy(nt+0x50,&f,8);
@@ -221,8 +224,8 @@ static u32 ioctl_ctrlgpu(u32 cmd, u8* d, u32 n, u8* extra, u32 nextra){
                                          the second queue and NVN leaves that queue without a channel */
         static const i16 lv[9]={0x1C,0xB,-1,0x1F,0x14,0,0,0,0};   /* 0x76 >= 0x1F: the channel takes SET_PREEMPTION_MODE (else NVN drops its channel);
                                                                     0x72 (TSG) above 0xA: NvRm reads the subcontext count at 0xB4 */ memcpy(nt+0x70,lv,sizeof lv);
-        memcpy(d+16,nt,0xD0); if(extra && nextra) memcpy(extra,nt,nextra<0xD0? nextra : 0xD0);
-        { static int said; if(!said){ said=1; LOG("nvdrv: Switch 2 GPU characteristics (arch 0x170, SM 8.8)\n"); } } }
+        memcpy(d+16,nt,chsz); if(extra && nextra) memcpy(extra,nt,nextra<chsz? nextra : chsz);
+        { static int said; if(!said){ said=1; LOG("nvdrv: Switch 2 GPU characteristics (arch 0x170, SM 8.8, %u bytes)\n",chsz); } } }
       return 0; }
     case 0x06: { u32 m=3; memcpy(d+16,&m,4); if(extra && nextra>=4) memcpy(extra,&m,4); return 0; }
     case 0x13: { /* NUM_VSMS: GM20B = 2 SMs (1 GPC x 2 TPC). Ioctl3 variant also returns {gpc,tpc} per SM: the Switch 2 driver
