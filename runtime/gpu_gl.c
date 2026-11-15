@@ -3881,7 +3881,7 @@ static void gpu_thread(void* arg){ t_gpu_thread=1;
     extern void gmmu_replay(void (*)(u64,u64,u64)); extern void edenvk_map(u64,u64,u64);
     void* dp=NULL; void* sf=NULL; int ww=0, wh=0; int type= g_edenvk_want? backend_vk_window(&dp,&sf,&ww,&wh) : 0;
     if(type && edenvk_start(type,dp,sf,(u32)ww,(u32)wh)){ gmmu_replay(edenvk_map); LOG("renderer: Vulkan (Eden)\n"); }
-    else if(g_edenvk_want) WARN("renderer=vulkan: Vulkan didn't start, using OpenGL\n"); }
+    else if(g_edenvk_want){ extern void backend_vk_failed(void); backend_vk_failed(); WARN("renderer=vulkan: Vulkan didn't start, using OpenGL\n"); } }
   for(;;){
     warm_step();
     { /* loading screens etc: log how long we went without a new image */

@@ -34,6 +34,7 @@ void backend_ini(const char* k, const char* v){
   else if(!strcmp(k,"renderer")){ extern int g_edenvk_want; g_edenvk_want= !strcmp(v,"vulkan"); }   /* opengl (default) or vulkan (edenvk.h) */
 }
 
+void backend_vk_failed(void){}
 /* renderer=vulkan: what the Vulkan surface is made from (1 = Xlib) */
 int backend_vk_window(void** display, void** surface, int* w, int* h){
   /* its own connection: the Vulkan driver's WSI and GLX on one Display from two threads ended in "XIO: fatal IO error 11" */

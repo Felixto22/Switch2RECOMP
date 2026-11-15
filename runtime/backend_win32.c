@@ -62,7 +62,13 @@ void backend_ini(const char* k, const char* v){
 }
 
 /* renderer=vulkan: the window the Vulkan surface is made on (2 = Win32) */
-int backend_vk_window(void** display, void** surface, int* w, int* h){ *display=NULL; *surface=(void*)g_hwnd; *w=g_ww; *h=g_wh; return g_hwnd? 2 : 0; }
+/* renderer=eden draws into a child window of its own that covers the game window: the game window has an OpenGL pixel
+   format (set before Vulkan starts, and kept for the OpenGL fallback), and AMD's Vulkan driver refuses a swapchain on a
+   window OpenGL uses (VK_ERROR_NATIVE_WINDOW_IN_USE_KHR). The child is disabled, so mouse and keyboard go to the game
+   window as before. SWR_VK_SAME_WINDOW=1: the game window itself, as before */
+static HWND g_vkchild;
+int backend_vk_window(void** display, void** surface, int* w, int* h){ *display=NULL; *surface=(void*)(g_vkchild? g_vkchild : g_hwnd); *w=g_ww; *h=g_wh; return g_hwnd? 2 : 0; }
+void backend_vk_failed(void){ if(g_vkchild) ShowWindow(g_vkchild,SW_HIDE); }   /* the OpenGL fallback draws into the game window */
 
 int video_has_gl(void){ return 1; }
 
@@ -256,7 +262,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l){
   case WM_POWERBROADCAST: if(w==PBT_APMSUSPEND) LOG("window: the PC is going to sleep\n"); else if(w==PBT_APMRESUMEAUTOMATIC) LOG("window: the PC resumed from sleep\n"); break;
   case WM_MOVE: mouse_capture(); break;
   case WM_SETFOCUS: mouse_capture(); return 0;
-  case WM_SIZE: mouse_capture(); g_ww=LOWORD(l); g_wh=HIWORD(l); if(g_ww<1) g_ww=1; if(g_wh<1) g_wh=1; { extern void nvn_window_resized(int,int); nvn_window_resized(g_ww,g_wh); } return 0;
+  case WM_SIZE: mouse_capture(); g_ww=LOWORD(l); g_wh=HIWORD(l); if(g_ww<1) g_ww=1; if(g_wh<1) g_wh=1; if(g_vkchild) MoveWindow(g_vkchild,0,0,g_ww,g_wh,FALSE); { extern void nvn_window_resized(int,int); nvn_window_resized(g_ww,g_wh); } return 0;
   case WM_SYSKEYDOWN: if(w==VK_RETURN){ if(!(l&(1<<30))) set_fullscreen(!g_fullscreen); return 0; } if(w==VK_F4) break; /* let Alt+F4 through */
   /* fallthrough */
   case WM_KEYDOWN:
@@ -306,6 +312,10 @@ static void win_thread(void* arg){ (void)arg;
   PIXELFORMATDESCRIPTOR pfd={sizeof pfd,1,PFD_DRAW_TO_WINDOW|PFD_SUPPORT_OPENGL|PFD_DOUBLEBUFFER,PFD_TYPE_RGBA,32};
   pfd.cDepthBits=24; pfd.cStencilBits=8; pfd.iLayerType=PFD_MAIN_PLANE;
   SetPixelFormat(g_hdc,ChoosePixelFormat(g_hdc,&pfd),&pfd);
+  { extern int g_edenvk_want; if(g_edenvk_want && !getenv("SWR_VK_SAME_WINDOW")){
+      WNDCLASSA vc={0}; vc.lpfnWndProc=DefWindowProcA; vc.hInstance=hi; vc.hbrBackground=(HBRUSH)GetStockObject(BLACK_BRUSH); vc.lpszClassName="SwitchRecompVk";
+      RegisterClassA(&vc); RECT cr; GetClientRect(g_hwnd,&cr);
+      g_vkchild=CreateWindowA("SwitchRecompVk","",WS_CHILD|WS_VISIBLE|WS_DISABLED|WS_CLIPSIBLINGS,0,0,cr.right,cr.bottom,g_hwnd,NULL,hi,NULL); } }
   if(g_want_fs) set_fullscreen(1);
   ls_launch(); mouse_capture();
   SetEvent(g_ready);
