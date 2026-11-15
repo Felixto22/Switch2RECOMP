@@ -11,6 +11,7 @@ instruction templates). The runtime provides HLE kernel/services and a GL render
 Usage:
   python switchrecomp.py GAME_FOLDER                   (with exefs/ and romfs/ from hactool)
   python switchrecomp.py game.nro                      (homebrew)
+  python switchrecomp.py game.nup                      (a decrypted Switch 2 dump in one file)
   python switchrecomp.py FOLDER -o Game --cc gcc -O 2 --jobs 8
 
 Output (next to the executable):
@@ -387,14 +388,15 @@ def copy_data(mods, npdm, romfs, entry, datadir, say):
     src = nxloader.find_exefs(entry)
     for n in os.listdir(src):
         s = os.path.join(src, n); d = os.path.join(ex, n)
-        if os.path.isfile(s) and not (os.path.isfile(d) and filecmp.cmp(s, d, shallow=False)):
+        if os.path.isfile(s) and os.path.abspath(s) != os.path.abspath(d) and not (os.path.isfile(d) and filecmp.cmp(s, d, shallow=False)):
             shutil.copyfile(s, d)
     # icon and title for the tool, if the dump has the control data (control/ or next to exefs/)
     root = os.path.dirname(os.path.normpath(src))
     for d in (root, os.path.join(root, 'control')):
         for name in ('control.nacp', 'icon_AmericanEnglish.dat', 'icon.jpg', 'icon.png'):
             s = os.path.join(d, name)
-            if os.path.isfile(s): shutil.copyfile(s, os.path.join(datadir, name))
+            d = os.path.join(datadir, name)
+            if os.path.isfile(s) and os.path.abspath(s) != os.path.abspath(d): shutil.copyfile(s, d)
     if isinstance(romfs, str):
         dst = os.path.join(datadir, 'romfs')
         if os.path.abspath(romfs) != os.path.abspath(dst):
@@ -404,6 +406,66 @@ def copy_data(mods, npdm, romfs, entry, datadir, say):
                 say('rsync is unavailable; using the built-in ROMFS copy fallback')
             n = sync_tree(romfs, dst)
             if n and not first: say('romfs: %d changed files copied' % n)
+
+
+# ---------------------------------------------------------------- .nup packages (decrypted Switch 2 dumps)
+# tools/nup/ reads them (from Hookshot, GPL-3.0-or-later, run as its own program). The game is extracted straight into
+# Game_data\ (exefs + romfs), the folder the runtime reads, so a 30 GB romfs is written once and never copied again.
+NUP_TOOL = os.path.join(HERE, 'tools', 'nup', 'nup.py')
+
+
+def is_nup(path):
+    return os.path.isfile(path) and path.lower().endswith('.nup')
+
+
+def game_title(out, npdm, src):
+    """the output name: -o, else the name in main.npdm, else the dump's name (a folder as is, a file without extension)"""
+    info = nxloader.parse_npdm(npdm)
+    src_name = os.path.basename(os.path.normpath(src))
+    if os.path.isfile(src): src_name = os.path.splitext(src_name)[0]
+    title = out or (info['name'] if info['name'] not in ('Application', '') else None) or src_name
+    return ''.join(ch for ch in title if ch.isalnum() or ch in '-_ ').strip() or 'Game'
+
+
+def run_nup(args, say):
+    cmd = [sys.executable, '-u', '-I', NUP_TOOL] + args
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', cwd=HERE)
+    last = []
+    for line in p.stdout:
+        line = line.rstrip()
+        if line:
+            say('  ' + line)
+            last = (last + [line])[-15:]
+    if p.wait():
+        raise SystemExit('Could not unpack the .nup:\n' + '\n'.join(last))
+
+
+def prepare_nup(nup, out, outdir, title_pick, say):
+    """extract a .nup into <outdir>/<Title>_data and return (that folder, Title)"""
+    if not os.path.isfile(NUP_TOOL):
+        raise SystemExit('tools/nup is missing: unzip the complete package.')
+    say('Unpacking the .nup (the game code first)...')
+    stem = ''.join(ch for ch in os.path.splitext(os.path.basename(nup))[0] if ch.isalnum() or ch in '-_') or 'game'
+    stage = os.path.join(outdir, '.nup_' + stem)
+    if os.path.isdir(stage): shutil.rmtree(stage)
+    pick = ['--title', title_pick] if title_pick else []
+    run_nup([nup, '--extract', stage, '--only', 'exefs'] + pick, say)
+    ex = os.path.join(stage, 'exefs')
+    if not os.path.isfile(os.path.join(ex, 'main')):
+        raise SystemExit('The .nup has no exefs/main for that title.')
+    npdm_p = os.path.join(ex, 'main.npdm')
+    npdm = open(npdm_p, 'rb').read() if os.path.isfile(npdm_p) else None
+    title = game_title(out, npdm, nup)
+    datadir = os.path.join(outdir, title) + '_data'
+    dex = os.path.join(datadir, 'exefs')
+    os.makedirs(dex, exist_ok=True)
+    for n in os.listdir(ex):
+        s = os.path.join(ex, n)
+        if os.path.isfile(s): replace_retry(s, os.path.join(dex, n))
+    shutil.rmtree(stage, ignore_errors=True)
+    say('Unpacking the .nup (the game data, may take a while the first time)...')
+    run_nup([nup, '--extract', datadir, '--only', 'romfs'] + pick, say)
+    return datadir, title
 
 
 def check_writable(*paths):
@@ -425,7 +487,7 @@ language=1
 
 def main():
     ap = argparse.ArgumentParser(description='Recompiles a Switch game into a native executable.')
-    ap.add_argument('input', nargs='?', help='game folder (exefs/ + romfs/) or .nro file')
+    ap.add_argument('input', nargs='?', help='game folder (exefs/ + romfs/), .nup file or .nro file')
     ap.add_argument('-o', '--out', help='output name (no extension)')
     ap.add_argument('--outdir', help='output folder')
     ap.add_argument('--cc', help='C compiler (gcc, clang, tcc, x86_64-w64-mingw32-gcc)')
@@ -440,6 +502,7 @@ def main():
     ap.add_argument('--interp-only', action='store_true', help='(diagnostics) no recompilation, everything interpreted')
     ap.add_argument('--runtime', help='use an already built runtime (.exe) instead of building it')
     ap.add_argument('--build-runtime', action='store_true', help='build bin/runtime_<target>_<backend> with GCC and exit')
+    ap.add_argument('--nup-title', help='.nup with several titles: index, version or title id (default: the newest)')
     ap.add_argument('-q', '--quiet', action='store_true')
     a = ap.parse_args()
     say = (lambda m: None) if a.quiet else (lambda m: print(m, flush=True))
@@ -455,25 +518,25 @@ def main():
         build_runtime(cc, out, target_win, backend, say, a.O)
         say('Done: %s' % out)
         return
-    if not a.input: ap.error('the game folder or .nro file is required')
+    if not a.input: ap.error('the game folder, .nup or .nro file is required')
     # check the compiler first, not after minutes of translation
     cc = None
     if not a.no_build:
         cc = find_cc(a.cc, target_win)
         if not cc: raise SystemExit('C compiler not found: %s' % a.cc if a.cc else 'No C compiler found (gcc, clang or tcc).')
     say('SwitchRecomp - use your own copy of the game. No games or keys included.')
+    if is_nup(a.input):
+        outdir = os.path.abspath(a.outdir or os.getcwd())
+        os.makedirs(outdir, exist_ok=True)
+        a.input, a.out = prepare_nup(os.path.abspath(a.input), a.out, outdir, a.nup_title, say)
     try:
         mods, npdm, romfs = nxloader.load_program(a.input)
     except (ValueError, OSError) as e:
         raise SystemExit('Cannot load the game: %s' % e)
     for m in mods:
         say('  %-8s %010X  code %.1f MB  .eh_frame functions %d' % (m.name, m.base, m.text[1] / 1048576.0, len(m.fde)))
-    info = nxloader.parse_npdm(npdm)
     # a folder name is used as is ("Game v1.0" must not lose ".0"), a file loses its extension
-    src_name = os.path.basename(os.path.normpath(a.input))
-    if os.path.isfile(a.input): src_name = os.path.splitext(src_name)[0]
-    title = a.out or (info['name'] if info['name'] not in ('Application', '') else None) or src_name
-    title = ''.join(ch for ch in title if ch.isalnum() or ch in '-_ ').strip() or 'Game'
+    title = game_title(a.out, npdm, a.input)
     outdir = os.path.abspath(a.outdir or os.getcwd())
     os.makedirs(outdir, exist_ok=True)
     base = os.path.join(outdir, title)

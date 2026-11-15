@@ -1,3 +1,16 @@
+Switch2Recomp 0.4.1 + .nup (Felixto22 fork)
+
+- Recompile straight from a .nup file (a decrypted Switch 2 dump in one file): pick it in "Recompile a game" (the
+  picker shows files too now), drag it onto Recompile_nup.bat, or run switchrecomp.py game.nup. The newest title in
+  the package is used (--nup-title picks another); an update's missing modules come from the base title.
+- The game is unpacked straight into <Game>_data (exefs + romfs), the folder the runtime reads: the romfs is written
+  once, never copied a second time. A second run only writes what is missing or changed.
+- The free space is checked before the romfs is written, with the GB needed and free in the message.
+- Firmware 22+ modules (ZBIC compression) become plain NSOs on the way, so the recompiler reads them as before.
+- tools/nup is Hookshot's reader (GPL-3.0-or-later), run as its own program, on Python 3.14's built-in zstd or the
+  zstandard module. zbic (Atmosphere-NX's zstd with ZBIC) is built once with the bundled GCC, or comes prebuilt.
+- tests/test_nup.py makes a small .nup (two titles, packed files, nested folders) and checks the whole path.
+
 Switch2Recomp 0.4.1 - MZ Labs
 
 - Install.bat and Install.sh work again: the release builds were missing the tool folder (get_deps.py).

@@ -29,11 +29,16 @@ notice) that the recompiler and every recompiled game show when they start.
      With an update, extract the combined romfs:
         hactool -k prod.keys --basenca=base.nca --exefsdir=exefs --romfsdir=romfs  update.nca
      You end up with a folder that has exefs\ and romfs\ inside.
+     A .nup file (a decrypted Switch 2 dump in one file) needs none of this:
+     pick the .nup itself in step b), or drag it onto Recompile_nup.bat. It is
+     unpacked straight into the game's _data folder (as much free space as the
+     .nup is big, on the games folder's drive; SwitchRecomp checks it first).
+     A .nup with an update in it gives the newest version.
 
   b) Open SwitchRecomp.exe. It looks like the Switch HOME menu and works with
      the mouse (also keyboard: arrows + Enter / Esc, or a controller).
-     - The first tile, "Recompile a game": pick the game folder (the one with
-       exefs\ and romfs\). The game is written to the games\ folder and shows
+     - The first tile, "Recompile a game": pick the game's .nup file, or the
+       game folder (the one with exefs\ and romfs\). The game is written to the games\ folder and shows
        up in the row with its icon.
      - Click a game to start it. Right click (or the "-/+ Options" hint) opens
        its options: start, update its runtime, recompile its code, open its
@@ -55,6 +60,7 @@ notice) that the recompiler and every recompiled game show when they start.
 
   Command line:
      python\python.exe switchrecomp.py C:\path\to\game -o MyGame
+     python\python.exe switchrecomp.py C:\path\to\game.nup
      python\python.exe switchrecomp.py homebrew.nro
      Options: --native (optimize for your CPU)  -O 3  --jobs N  --cc tcc
 
@@ -109,6 +115,9 @@ notice) that the recompiler and every recompiled game show when they start.
 --------------------------------------------------------------------------------
 Thanks
 --------------------------------------------------------------------------------
+  The .nup reader (tools\nup) comes from Hookshot by NotRexed and its
+  contributors (GPL-3.0-or-later), with ZBIC decompression from Atmosphere-NX
+  through kinnay's zbic.
   Includes fixes from the SwitchRecomp fork by Mythrax-ZS (contributed under
   Apache 2.0, those parts keep that notice): GPU
   memory mapping and nvdrv limits, atomic loads/stores with real acquire/release
@@ -126,6 +135,9 @@ Third-party components
   SPIRV-Cross (Khronos, Apache 2.0)     LSFG shaders  runtime\spvc\LICENSE-SPIRV-Cross.txt
   texture2ddecoder (MIT)                BCn textures  runtime\bcn\LICENSE_texture2ddecoder.txt
   TCC (LGPL)                            tcc\COPYING.txt
+  .nup reader (Hookshot, GPL-3.0+)      .nup dumps    tools\nup\LICENSE
+  zbic / zstd (Atmosphere-NX, GPLv2;    .nup dumps    tools\nup\zbic\LICENSE
+    zstd BSD-or-GPLv2)                  (a separate tool: nothing of it goes into a game)
   Python (PSF license)                  downloaded by Install.bat, python\LICENSE.txt
   GCC / MinGW-w64 (GPL with the GCC runtime library exception), downloaded from conda-forge
     by Install.bat (tool\get_deps.py)

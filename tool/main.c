@@ -518,6 +518,29 @@ static void restore_icon(Game *g)
     }
 }
 
+/* the game dump: a .nup file (a decrypted Switch 2 dump in one file) or a folder with exefs and romfs. Windows' folder
+   picker shows files too with BIF_BROWSEINCLUDEFILES, so one dialog takes either */
+static int pick_dump(char *out, const char *title)
+{
+#ifndef _WIN32
+    /* linux: a .nup file first; cancel goes on to the folder picker */
+    if (px_dialog(out, MAX_PATH, "Pick the .nup file (Cancel: pick an extracted folder instead)", 0,
+                  "--file-filter='Switch 2 dumps | *.nup *.NUP' --file-filter='All files | *'", "'*.nup|Switch 2 dumps'") > 0)
+        return 1;
+    return px_dialog(out, MAX_PATH, title, 1, "", "") > 0;
+#else
+    BROWSEINFOA bi;
+    memset(&bi, 0, sizeof bi);
+    bi.lpszTitle = title;
+    bi.ulFlags = BIF_NEWDIALOGSTYLE | BIF_BROWSEINCLUDEFILES;   /* (not BIF_RETURNONLYFSDIRS: it greys out OK on a file) */
+    PIDLIST_ABSOLUTE id = SHBrowseForFolderA(&bi);
+    if (!id) return 0;
+    int ok = SHGetPathFromIDListA(id, out);
+    CoTaskMemFree(id);
+    return ok && out[0];
+#endif
+}
+
 static int pick_folder(char *out, const char *title)
 {
 #ifndef _WIN32
@@ -613,7 +636,9 @@ static void job_line(const char *s)
     int a, b;
     const char *d;
     /* what the recompiler prints, turned into a rough progress */
-    if (strstr(s, "Analyzing the code")) { snprintf(J.phase, sizeof J.phase, "Analyzing the game code..."); J.progress = 0.05f; }
+    if (strstr(s, "Unpacking the .nup (the game code")) { snprintf(J.phase, sizeof J.phase, "Unpacking the .nup: game code..."); J.progress = 0.01f; }
+    else if (strstr(s, "Unpacking the .nup (the game data")) { snprintf(J.phase, sizeof J.phase, "Unpacking the .nup: game data (several minutes the first time)..."); J.progress = 0.02f; }
+    else if (strstr(s, "Analyzing the code")) { snprintf(J.phase, sizeof J.phase, "Analyzing the game code..."); J.progress = 0.05f; }
     else if (strstr(s, "Translating ARM64 to C")) { snprintf(J.phase, sizeof J.phase, "Translating ARM64 to C..."); J.progress = 0.10f; }
     else if (sscanf(s, " C generated: %d/%d", &a, &b) == 2 && b) J.progress = 0.10f + 0.25f * a / b;
     else if (strstr(s, "Copying romfs")) { snprintf(J.phase, sizeof J.phase, "Copying the game data..."); J.progress = 0.36f; }
@@ -1102,7 +1127,7 @@ static void activate_tile(void)
 {
     if (H.sel == 0) {
         char dir[MAX_PATH];
-        if (pick_folder(dir, "Pick the game dump: the folder with exefs and romfs inside")) recompile(dir);
+        if (pick_dump(dir, "Pick the game dump: the .nup file, or the folder with exefs and romfs inside")) recompile(dir);
     } else
         launch_game(&app.games[H.sel - 1]);
 }
@@ -1562,7 +1587,7 @@ static void list_action(Row *r)
     case ACT_RECOMPILE: {
         char dir[MAX_PATH];
         if (g->src[0] && file_exists(g->src)) recompile(g->src);
-        else if (pick_folder(dir, "Pick this game's dump: the folder with exefs and romfs inside")) recompile(dir);
+        else if (pick_dump(dir, "Pick this game's dump: the .nup file, or the folder with exefs and romfs inside")) recompile(dir);
         break;
     }
     }
@@ -1675,8 +1700,10 @@ static void recompile(const char *src)
 {
     char ex[MAX_PATH];
     snprintf(ex, sizeof ex, "%s\\exefs", src);
-    if (!file_exists(ex) && !(strlen(src) > 4 && !_stricmp(src + strlen(src) - 4, ".nro"))) {
-        dialog_open(DLG_INFO, "That folder has no exefs inside.", "Pick the folder that has exefs and romfs (extracted with hactool).", "OK", NULL);
+    size_t sl = strlen(src);
+    int file = sl > 4 && (!_stricmp(src + sl - 4, ".nro") || !_stricmp(src + sl - 4, ".nup"));
+    if (!file_exists(ex) && !file) {
+        dialog_open(DLG_INFO, "That is not a game dump.", "Pick the .nup file, or the folder that has exefs and romfs (extracted with hactool).", "OK", NULL);
         return;
     }
     job_start(src);

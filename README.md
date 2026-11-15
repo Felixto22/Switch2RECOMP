@@ -33,6 +33,7 @@ shows up about a second and a half later, and later runs read it from `<game>_nv
 | `runtime/nvn/` | The Vulkan renderer (NVN layer) |
 | `runtime/edenvk/` | The Eden renderer: Eden's video_core and shader_recompiler with the glue to our runtime |
 | `tools/nxshader/` | The live shader translator used by `renderer=vulkan` |
+| `tools/nup/` | The `.nup` reader (decrypted Switch 2 dumps in one file), from Hookshot, GPL-3.0-or-later, run as its own program |
 | `tool/` | The GUI (`SwitchRecomp.exe`) and the install helpers |
 | `tests/` | Unit and regression tests (`REGRESSION.md`) |
 
@@ -77,7 +78,9 @@ The results go to `bin/`.
 python3 switchrecomp.py /path/to/game -o MyGame
 ```
 
-`/path/to/game` holds the `exefs/` and `romfs/` folders extracted from a legally owned copy. `README.txt` has the
+`/path/to/game` holds the `exefs/` and `romfs/` folders extracted from a legally owned copy, or is a `.nup` file
+(`python3 switchrecomp.py game.nup -o MyGame`: unpacked straight into `MyGame_data/`; `--nup-title` picks a title other
+than the newest). `README.txt` has the
 full steps and the options.
 
 ## License
